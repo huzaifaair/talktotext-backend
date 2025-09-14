@@ -1,8 +1,12 @@
 import os
 import requests
-from fpdf import FPDF
+# from fpdf import FPDF
 from docx import Document
 from moviepy.editor import VideoFileClip
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 # --- Font setup for PDF (Unicode safe) ---
 FONT_DIR = "storage/fonts"
@@ -20,25 +24,51 @@ def ensure_font():
             f.write(r.content)
         print("✅ NotoSans font downloaded!")
 
-# --- Export Notes to PDF ---
+# # --- Export Notes to PDF ---
+# def export_to_pdf(notes_text, output_path):
+#     ensure_font()
+#     pdf = FPDF()
+#     pdf.add_page()
+
+#     # Register and set Unicode font
+#     pdf.add_font("NotoSans", "", FONT_PATH, uni=True)
+#     pdf.set_font("NotoSans", size=12)
+
+#     # Accept string or list
+#     if isinstance(notes_text, str):
+#         lines = notes_text.split("\n")
+#     else:
+#         lines = list(notes_text)
+
+#     for line in lines:
+#         pdf.multi_cell(0, 10, str(line))
+#         pdf.multi_cell(0, 10, line.encode("latin-1", "replace").decode("latin-1"))
+
 def export_to_pdf(notes_text, output_path):
-    ensure_font()
-    pdf = FPDF()
-    pdf.add_page()
+    """
+    Stable PDF export using reportlab (Unicode + Urdu supported).
+    """
+    # Font register (Urdu / Arabic ke liye MSung-Light or STSong-Light bhi use ho sakta hai)
+    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiMin-W3'))  # universal Unicode font
 
-    # Register and set Unicode font
-    pdf.add_font("NotoSans", "", FONT_PATH, uni=True)
-    pdf.set_font("NotoSans", size=12)
+    c = canvas.Canvas(output_path, pagesize=A4)
+    width, height = A4
+    c.setFont("HeiseiMin-W3", 12)
 
-    # Accept string or list
-    if isinstance(notes_text, str):
-        lines = notes_text.split("\n")
-    else:
-        lines = list(notes_text)
+    # Accept string ya list
+    lines = notes_text.split("\n") if isinstance(notes_text, str) else list(notes_text)
 
+    y = height - 50
     for line in lines:
-        pdf.multi_cell(0, 10, str(line))
-        pdf.multi_cell(0, 10, line.encode("latin-1", "replace").decode("latin-1"))
+        if y < 50:  # page break
+            c.showPage()
+            c.setFont("HeiseiMin-W3", 12)
+            y = height - 50
+        c.drawString(50, y, line)
+        y -= 20
+
+    c.save()
+    return output_path
 
     # ensure directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
