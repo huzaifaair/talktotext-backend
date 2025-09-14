@@ -12,20 +12,25 @@ from models.mongo_models import uploads, notes
 ASSEMBLY_HEADERS = {"authorization": Config.SPEECH_API_KEY}
 
 
-# --- Upload local file to AssemblyAI ---
 def upload_to_assemblyai(file_path: str) -> str:
     """
-    Uploads local file to AssemblyAI and returns a temporary upload_url.
+    Uploads local audio/video file to AssemblyAI and returns upload_url.
+    If file_path is already a URL, just return it.
     """
+    if file_path.startswith("http://") or file_path.startswith("https://"):
+        # Already a remote URL (Zoom/Meet/AssemblyAI etc.)
+        return file_path
+
+    headers = {"authorization": Config.SPEECH_API_KEY}
     with open(file_path, "rb") as f:
-        resp = requests.post(
+        response = requests.post(
             "https://api.assemblyai.com/v2/upload",
-            headers=ASSEMBLY_HEADERS,
+            headers=headers,
             data=f,
-            timeout=300
+            timeout=120
         )
-        resp.raise_for_status()
-        return resp.json()["upload_url"]
+        response.raise_for_status()
+        return response.json()["upload_url"]
 
 
 # --- Transcribe when we already have an AssemblyAI upload_url ---
@@ -56,17 +61,35 @@ def transcribe_local(filepath):
     return "Dummy transcript (replace with actual STT)", "en"
 
 
-# --- Wrapper ---
-def transcribe(file_or_url: str, is_url: bool = False, language: str = "auto"):
-    if Config.SPEECH_PROVIDER == "assemblyai":
-        if is_url:
-            return transcribe_with_assemblyai_url(file_or_url, language)
-        else:
-            # upload local file first, then transcribe
-            upload_url = upload_to_assemblyai(file_or_url)
-            return transcribe_with_assemblyai_url(upload_url, language)
-    else:
-        return transcribe_local(file_or_url)
+def transcribe(file_or_url: str, language: str = None, is_url: bool = False):
+    """
+    Unified transcription handler (local file, remote URL, or pre-uploaded AssemblyAI URL).
+    """
+    # 1. Get upload_url (skip if already URL)
+    upload_url = upload_to_assemblyai(file_or_url)
+
+    # 2. Request transcription
+    endpoint = "https://api.assemblyai.com/v2/transcript"
+    headers = {"authorization": Config.SPEECH_API_KEY}
+    json_data = {"audio_url": upload_url, "language_detection": True}
+    if language and language != "auto":
+        json_data["language_code"] = language
+
+    transcript_res = requests.post(endpoint, headers=headers, json=json_data, timeout=30)
+    transcript_res.raise_for_status()
+    transcript_id = transcript_res.json()["id"]
+
+    # 3. Poll until done
+    status_endpoint = f"{endpoint}/{transcript_id}"
+    while True:
+        poll_res = requests.get(status_endpoint, headers=headers, timeout=30)
+        poll_res.raise_for_status()
+        data = poll_res.json()
+        if data["status"] == "completed":
+            return data["text"], data.get("language_code", "auto")
+        elif data["status"] == "error":
+            raise RuntimeError(f"AssemblyAI error: {data['error']}")
+        time.sleep(2)
 
 
 # --- Clean transcript ---
