@@ -9,34 +9,43 @@ from config import Config
 from models.mongo_models import uploads, notes
 
 
-# --- AssemblyAI transcription with auto language detection ---
-def transcribe_with_assemblyai(filepath):
-    headers = {"authorization": Config.SPEECH_API_KEY}
+ASSEMBLY_HEADERS = {"authorization": Config.SPEECH_API_KEY}
 
-    # Step 1: Upload file
-    with open(filepath, "rb") as f:
-        upload_url = "https://api.assemblyai.com/v2/upload"
-        r = requests.post(upload_url, headers=headers, data=f, timeout=120)
-        r.raise_for_status()
-        audio_url = r.json()["upload_url"]
 
-    # Step 2: Request transcription (auto-detect language)
+# --- Upload local file to AssemblyAI ---
+def upload_to_assemblyai(file_path: str) -> str:
+    """
+    Uploads local file to AssemblyAI and returns a temporary upload_url.
+    """
+    with open(file_path, "rb") as f:
+        resp = requests.post(
+            "https://api.assemblyai.com/v2/upload",
+            headers=ASSEMBLY_HEADERS,
+            data=f,
+            timeout=300
+        )
+        resp.raise_for_status()
+        return resp.json()["upload_url"]
+
+
+# --- Transcribe when we already have an AssemblyAI upload_url ---
+def transcribe_with_assemblyai_url(audio_url: str, language: str = "auto"):
     endpoint = "https://api.assemblyai.com/v2/transcript"
     json_data = {"audio_url": audio_url, "language_detection": True}
-    r = requests.post(endpoint, headers=headers, json=json_data, timeout=30)
+    if language and language != "auto":
+        json_data["language_code"] = language
+
+    r = requests.post(endpoint, headers=ASSEMBLY_HEADERS, json=json_data, timeout=60)
     r.raise_for_status()
     transcript_id = r.json()["id"]
 
-    # Step 3: Poll until transcription is complete
     status_endpoint = f"{endpoint}/{transcript_id}"
     while True:
-        res = requests.get(status_endpoint, headers=headers, timeout=30)
+        res = requests.get(status_endpoint, headers=ASSEMBLY_HEADERS, timeout=60)
         res.raise_for_status()
         data = res.json()
         if data["status"] == "completed":
-            transcript_text = data["text"]
-            detected_lang = data.get("language_code", "auto")
-            return transcript_text, detected_lang
+            return data["text"], data.get("language_code", "auto")
         elif data["status"] == "error":
             raise RuntimeError(f"AssemblyAI error: {data['error']}")
         time.sleep(2)
@@ -48,11 +57,16 @@ def transcribe_local(filepath):
 
 
 # --- Wrapper ---
-def transcribe(filepath):
+def transcribe(file_or_url: str, is_url: bool = False, language: str = "auto"):
     if Config.SPEECH_PROVIDER == "assemblyai":
-        return transcribe_with_assemblyai(filepath)
+        if is_url:
+            return transcribe_with_assemblyai_url(file_or_url, language)
+        else:
+            # upload local file first, then transcribe
+            upload_url = upload_to_assemblyai(file_or_url)
+            return transcribe_with_assemblyai_url(upload_url, language)
     else:
-        return transcribe_local(filepath)
+        return transcribe_local(file_or_url)
 
 
 # --- Clean transcript ---
@@ -96,7 +110,6 @@ Transcript extract:
     return call_llm(prompt)
 
 
-
 # --- Progress helper ---
 def set_progress(upload_id, stage, percent):
     try:
@@ -112,20 +125,26 @@ def set_progress(upload_id, stage, percent):
 
 
 # --- Main pipeline ---
-def process_upload(upload_id, file_path, user_id, language="auto"):
+def process_upload(upload_id, file_path_or_url, user_id, language="auto", is_url=False):
+    """
+    file_path_or_url -> can be:
+        - local audio file
+        - local video file
+        - external meeting URL (e.g. YouTube, Zoom recording link)
+    """
     try:
         set_progress(upload_id, "processing", 5)
 
-        # 1. Handle MP4 → extract first 2 minutes
-        if file_path.lower().endswith(".mp4"):
+        # 1. Handle MP4 (extract first 2 minutes of audio)
+        if not is_url and file_path_or_url.lower().endswith(".mp4"):
             set_progress(upload_id, "extracting", 10)
-            audio_path = file_path.rsplit(".", 1)[0] + "_2min.mp3"
-            file_path = extract_audio_from_video(file_path, audio_path, duration=120)
+            audio_path = file_path_or_url.rsplit(".", 1)[0] + "_2min.mp3"
+            file_path_or_url = extract_audio_from_video(file_path_or_url, audio_path, duration=120)
             set_progress(upload_id, "extracted", 20)
 
-        # 2. Transcribe (AssemblyAI auto-detect)
+        # 2. Transcribe
         set_progress(upload_id, "transcribing", 30)
-        transcript, detected_lang = transcribe(file_path)
+        transcript, detected_lang = transcribe(file_path_or_url, is_url=is_url, language=language)
         set_progress(upload_id, "transcribed", 45)
 
         # 3. Translate if not English
