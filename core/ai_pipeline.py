@@ -203,10 +203,13 @@ def process_upload(upload_id, file_path_or_url, user_id, language="auto", is_url
 
         uploads.update_one(
             {"_id": upload_id},
-            {"$set": {"status": "done", "note_id": res.inserted_id,
-                      "progress": {"stage": "done", "percent": 100}}}
+            {"$set": {
+                "status": "done",
+                "note_id": str(res.inserted_id),   # 👈 yaha bhi string
+                "progress": {"stage": "done", "percent": 100}
+            }}
         )
-        return res.inserted_id
+        return {"note_id": str(res.inserted_id)}
 
     except Exception as e:
         uploads.update_one(
