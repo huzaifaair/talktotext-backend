@@ -1,0 +1,26 @@
+flask
+pymongo
+python-jose
+werkzeug
+requests
+pydantic
+python-dotenv
+moviepy
+speechrecognition
+celery
+redis
+
+
+googletrans==4.0.0-rc1
+
+requests
+
+# Export formats
+fpdf
+python-docx
+
+# Password security
+bcrypt
+
+# Deployment
+gunicorn
