@@ -38,6 +38,7 @@ def export_to_pdf(notes_text, output_path):
 
     for line in lines:
         pdf.multi_cell(0, 10, str(line))
+        pdf.multi_cell(0, 10, line.encode("latin-1", "replace").decode("latin-1"))
 
     # ensure directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

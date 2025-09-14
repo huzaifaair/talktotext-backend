@@ -79,7 +79,7 @@ def download_pdf(note_id):
     os.makedirs("storage/exports", exist_ok=True)
     path = f"storage/exports/{note_id}.pdf"
     export_to_pdf(n.get("final_notes", ""), path)
-    return send_file(path, as_attachment=True)
+    return send_file(path, as_attachment=True,mimetype="application/pdf")
 
 
 @bp.route('/download/docx/<note_id>', methods=['GET'])
@@ -91,4 +91,4 @@ def download_docx(note_id):
     os.makedirs("storage/exports", exist_ok=True)
     path = f"storage/exports/{note_id}.docx"
     export_to_docx(n.get("final_notes", ""), path)
-    return send_file(path, as_attachment=True)
+    return send_file(path, as_attachment=True, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
