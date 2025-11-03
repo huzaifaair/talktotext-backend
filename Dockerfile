@@ -1,10 +1,13 @@
-# Use Python 3.10 base image
+# =========================
+#   Base Image
+# =========================
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies required for video, audio, and crypto libs
+# =========================
+#   Install Dependencies
+# =========================
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsm6 \
@@ -15,18 +18,18 @@ RUN apt-get update && apt-get install -y \
     portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy files
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
-# Copy project files
 COPY . .
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Run the Flask app
-CMD ["python", "app.py"]
+# Create a non-root user (fixes Celery warning)
+RUN adduser --disabled-password appuser
+USER appuser
+
+# Default command for backend
+CMD ["python", "wsgi.py"]
